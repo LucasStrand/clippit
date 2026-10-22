@@ -12,7 +12,7 @@
     "start": "electron .",
     "install-hooks": "node install/install.mjs",
     "uninstall-hooks": "node install/install.mjs --uninstall",
-    "test": "node --test test/",
+    "test": "node --test \"test/*.test.mjs\"",
     "dist": "electron-builder --publish never"
   },
   "devDependencies": {
@@ -75,6 +75,7 @@
       ],
       "category": "public.app-category.developer-tools",
       "identity": "-",
+      "hardenedRuntime": false,
       "extendInfo": {
         "LSUIElement": true
       },
