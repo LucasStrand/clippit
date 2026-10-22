@@ -2,9 +2,10 @@
 //
 //   node install/install.mjs [--uninstall] [--settings <path>] [--no-link]
 //
-// Every hook is async (it can never block or change Claude) and in exec form (no shell). Existing
-// hooks are kept; Clippit's own entries are recognised by the hook script path, so running this
-// again changes nothing and --uninstall removes only what it added. settings.json is backed up first.
+// Every hook is async (it can never block or change Claude). From a checkout it runs the hook with Node in
+// exec form (no shell); an installed Clippit runs it with its own Electron as Node, which takes a shell to set
+// ELECTRON_RUN_AS_NODE. Existing hooks are kept; Clippit's own entries are recognised by the hook script path,
+// so running this again changes nothing and --uninstall removes only what it added. settings.json is backed up first.
 
 import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -17,7 +18,31 @@ export const HOOK = path.join(root, 'hook', 'clippit-hook.mjs');
 export const EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PermissionRequest', 'Notification', 'Stop',
   'StopFailure', 'SubagentStart', 'PreCompact', 'SessionEnd'];
 
-const isOurs = h => h && h.type === 'command' && [h.command, ...(h.args || [])].some(a => String(a).endsWith('clippit-hook.mjs'));
+const isOurs = h => h && h.type === 'command' && [h.command, ...(h.args || [])].some(a => String(a).includes('clippit-hook.mjs'));
+
+export const settingsFile = (env = process.env) =>
+  path.join(env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'settings.json');
+
+export const hasHooks = settings => Object.values(settings.hooks || {}).some(groups =>
+  groups.some(g => (g.hooks || []).some(isOurs)));
+
+// One hook entry. `electron` runs `node` (then Clippit's own executable) as Node through the shell.
+export function hookEntry({ node = process.execPath, hook = HOOK, electron = false, platform = process.platform } = {}) {
+  const base = { type: 'command', async: true, timeout: 10 };
+  if (!electron) return { ...base, command: node, args: [hook] };
+  if (platform === 'win32') {
+    const q = a => `'${a.replace(/'/g, "''")}'`;
+    return { ...base, shell: 'powershell', command: `$env:ELECTRON_RUN_AS_NODE='1'; & ${q(node)} ${q(hook)}` };
+  }
+  const q = a => `'${a.replace(/'/g, "'\\''")}'`;
+  return { ...base, command: `ELECTRON_RUN_AS_NODE=1 exec ${q(node)} ${q(hook)}` };
+}
+
+// True when every event already has exactly this entry.
+export const hooksCurrent = (settings, opts) => {
+  const want = JSON.stringify(hookEntry(opts));
+  return EVENTS.every(ev => (settings.hooks?.[ev] || []).some(g => (g.hooks || []).some(h => JSON.stringify(h) === want)));
+};
 
 export function removeHooks(settings) {
   const hooks = settings.hooks || {};
@@ -31,14 +56,32 @@ export function removeHooks(settings) {
   return settings;
 }
 
-export function addHooks(settings, { node = process.execPath, hook = HOOK } = {}) {
+export function addHooks(settings, opts = {}) {
   removeHooks(settings);
   settings.hooks = settings.hooks || {};
-  for (const ev of EVENTS) {
-    const entry = { type: 'command', command: node, args: [hook], async: true, timeout: 10 };
-    (settings.hooks[ev] = settings.hooks[ev] || []).push({ hooks: [entry] });
-  }
+  for (const ev of EVENTS) (settings.hooks[ev] = settings.hooks[ev] || []).push({ hooks: [hookEntry(opts)] });
   return settings;
+}
+
+export function readSettings(file) {
+  return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {};   // throws on invalid JSON
+}
+
+// Adds Clippit's hooks to a Claude Code settings file (or removes them), after backing the file up.
+// Returns the backup's path, or null when there was no file yet.
+export function writeHooks(file, { uninstall = false, ...opts } = {}) {
+  const settings = readSettings(file);
+  let backup = null;
+  if (existsSync(file)) {
+    backup = `${file}.clippit-backup-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+    copyFileSync(file, backup);
+  }
+  if (uninstall) removeHooks(settings); else addHooks(settings, opts);
+  mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.clippit-tmp`;
+  writeFileSync(tmp, JSON.stringify(settings, null, 2) + '\n');
+  renameSync(tmp, file);
+  return backup;
 }
 
 function linkLauncher(uninstall) {
@@ -59,23 +102,13 @@ function linkLauncher(uninstall) {
 function main(argv) {
   const uninstall = argv.includes('--uninstall');
   const at = argv.indexOf('--settings');
-  const file = at >= 0 ? path.resolve(argv[at + 1])
-    : path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'settings.json');
-  let settings = {};
-  if (existsSync(file)) {
-    try { settings = JSON.parse(readFileSync(file, 'utf8')); } catch (e) {
-      console.error(`clippit: ${file} is not valid JSON (${e.message}); fix it first, nothing was changed.`);
-      process.exit(1);
-    }
-    const backup = `${file}.clippit-backup-${new Date().toISOString().replace(/[:.]/g, '-')}`;
-    copyFileSync(file, backup);
-    console.log(`backed up ${file} → ${backup}`);
+  const file = at >= 0 ? path.resolve(argv[at + 1]) : settingsFile();
+  let backup;
+  try { backup = writeHooks(file, { uninstall }); } catch (e) {
+    console.error(`clippit: couldn't update ${file} (${e.message}); fix that first, nothing was changed.`);
+    process.exit(1);
   }
-  if (uninstall) removeHooks(settings); else addHooks(settings);
-  mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.clippit-tmp`;
-  writeFileSync(tmp, JSON.stringify(settings, null, 2) + '\n');
-  renameSync(tmp, file);
+  if (backup) console.log(`backed up ${file} → ${backup}`);
   console.log(uninstall ? `removed Clippit's hooks from ${file}` : `added Clippit's hook for ${EVENTS.length} events to ${file}`);
   if (!argv.includes('--no-link')) {
     const link = linkLauncher(uninstall);

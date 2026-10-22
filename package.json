@@ -12,9 +12,73 @@
     "start": "electron .",
     "install-hooks": "node install/install.mjs",
     "uninstall-hooks": "node install/install.mjs --uninstall",
-    "test": "node --test test/"
+    "test": "node --test test/",
+    "dist": "electron-builder --publish never"
   },
   "devDependencies": {
-    "electron": "44.5.1"
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "io.github.lucasstrand.clippit",
+    "productName": "Clippit",
+    "copyright": "Clippit contributors, MIT license. Clippy is a trademark of Microsoft Corporation.",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "package.json",
+      "app/**",
+      "lib/**",
+      "hook/**",
+      "install/**",
+      "!app/assets/clippy/**",
+      "!app/renderer/agent-data.js"
+    ],
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Utility",
+      "executableName": "clippit",
+      "artifactName": "Clippit-linux-${arch}.${ext}"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Clippit-windows-${arch}-setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "category": "public.app-category.developer-tools",
+      "identity": "-",
+      "extendInfo": {
+        "LSUIElement": true
+      },
+      "artifactName": "Clippit-mac-${arch}.${ext}"
+    }
   }
 }

@@ -1,33 +1,48 @@
 // Clippit's Electron main process: the always-on-top Clippit window, the tray, and the bridge from
 // Claude Code hook events (lib/server.mjs) to what Clippit says and does.
 
-import { app, BrowserWindow, dialog, ipcMain, Menu, Notification, nativeImage, screen, Tray } from 'electron';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { app, BrowserWindow, dialog, ipcMain, Menu, net, Notification, nativeImage, protocol, screen, Tray } from 'electron';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { ready } from '../install/setup.mjs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { hasHooks, hooksCurrent, readSettings, settingsFile, writeHooks } from '../install/install.mjs';
+import { ACS_URL, decode, download, ready } from '../install/setup.mjs';
 import { configDir, loadSettings, saveSettings, writeConnection } from '../lib/config.mjs';
 import { focusSession, isFocused } from '../lib/platform.mjs';
 import { startServer } from '../lib/server.mjs';
 import { Sessions } from '../lib/sessions.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const asset = name => path.join(here, 'assets', 'clippy', name);
 const WIN_W = 440, WIN_H = 420;
 const IS_MAC = process.platform === 'darwin';
 
 app.setName('Clippit');
+// X11 (XWayland on Wayland desktops) lets the window shape itself, stay on top and move by drag. Chromium picks its
+// display backend before this script runs, so on Linux without bin/clippit's flags (an installed Clippit, `npm start`)
+// he starts himself again with them; an AppImage restarts through its image, since its mount goes away with it.
+const relaunch = process.platform === 'linux' && app.commandLine.getSwitchValue('ozone-platform') !== 'x11';
+if (relaunch) {
+  app.relaunch({ execPath: process.env.APPIMAGE || process.execPath,
+    args: [...process.argv.slice(1), '--ozone-platform=x11', '--class=clippit', '--name=clippit', '--enable-transparent-visuals'] });
+  app.exit(0);
+}
 // A second `clippit` only wakes the running one (second-instance below) and must not start anything:
 // app.quit() is asynchronous, so the startup code checks `primary` too.
-const primary = app.requestSingleInstanceLock();
-if (!primary) {
+const primary = !relaunch && app.requestSingleInstanceLock();
+if (!primary && !relaunch) {
   console.log('clippit: already running, bringing Clippit back');
   app.quit();
 }
 if (IS_MAC) app.dock?.hide();
+// The page loads from clippit://app/ so his frames and sounds can come from wherever they were decoded (serve below).
+protocol.registerSchemesAsPrivileged([{ scheme: 'clippit', privileges: { standard: true, secure: true, stream: true } }]);
 
 const dir = configDir();
+// His frames and sounds are Microsoft's artwork, decoded on each machine: into app/ by `npm run setup` in a checkout,
+// into the config folder on an installed Clippit's first start (setupCharacter below).
+const charDir = ready(here) ? here : path.join(dir, 'character');
+const asset = name => path.join(charDir, 'assets', 'clippy', name);
 let settings = loadSettings(dir);
 const sessions = new Sessions();
 const history = [];                 // recent announcements, newest first
@@ -77,7 +92,7 @@ function createWindow() {
   win.setAlwaysOnTop(true, 'floating');
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   if (IS_MAC) win.setIgnoreMouseEvents(true, { forward: true });   // the renderer turns clicks on over Clippit
-  win.loadFile(path.join(here, 'renderer', 'index.html'));
+  win.loadURL('clippit://app/renderer/index.html');
   win.once('ready-to-show', () => { if (!settings.hidden) win.showInactive(); });
   // A window manager's close (Super+Q and the like) hides Clippit; only Quit in his menu quits.
   win.on('close', e => {
@@ -158,8 +173,9 @@ function setStartAtLogin(on) {
   const f = autostartFile();
   if (!on) { rmSync(f, { force: true }); return; }
   mkdirSync(path.dirname(f), { recursive: true });
+  const exec = app.isPackaged ? process.env.APPIMAGE || process.execPath : path.join(here, '..', 'bin', 'clippit');
   writeFileSync(f, ['[Desktop Entry]', 'Type=Application', 'Name=Clippit', 'Comment=Clippit for Claude Code',
-    `Exec=${path.join(here, '..', 'bin', 'clippit')}`, `Icon=${asset('icon-256.png')}`, 'X-GNOME-Autostart-enabled=true', ''].join('\n'));
+    `Exec="${exec}"`, `Icon=${asset('icon-256.png')}`, 'X-GNOME-Autostart-enabled=true', ''].join('\n'));
 }
 
 function menuTemplate() {
@@ -194,6 +210,7 @@ function menuTemplate() {
       .map(([v, label]) => ({ label, type: 'radio', checked: settings.systemNotifications === v,
         click: () => { settings.systemNotifications = v; save(); } })) },
     { label: 'Start at login', type: 'checkbox', checked: startsAtLogin(), click: i => setStartAtLogin(i.checked) },
+    { label: 'Connected to Claude Code', type: 'checkbox', checked: hasHooks(claudeSettings() || {}), click: i => setHooks(i.checked) },
     { type: 'separator' },
     settings.hidden ? { label: 'Show Clippit', click: () => setHidden(false) } : { label: 'Hide Clippit', click: () => setHidden(true) },
     { label: 'Quit Clippit', click: () => app.quit() },
@@ -251,6 +268,89 @@ ipcMain.on('focus', (_e, id) => focus(id));
 ipcMain.on('menu', () => { if (win) Menu.buildFromTemplate(menuTemplate()).popup({ window: win }); });
 ipcMain.on('hide', () => setHidden(true));
 
+// ---------------------------------------------------------------- first start
+
+// clippit://app/<path>: the renderer from the app, his decoded frames, sounds and animation data from charDir.
+function serve(req) {
+  const rel = path.normalize(decodeURIComponent(new URL(req.url).pathname)).replace(/^[\\/]+/, '');
+  const decoded = rel === path.join('renderer', 'agent-data.js') || rel.startsWith(path.join('assets', 'clippy') + path.sep);
+  const base = decoded ? charDir : here;
+  const file = path.join(base, rel);
+  if (!file.startsWith(base + path.sep)) return new Response(null, { status: 404 });
+  return net.fetch(pathToFileURL(file).toString());
+}
+
+// His frames and sounds can't ship with Clippit, so the first start fetches the original character file (checked
+// against its sha256) or takes one the user has, and decodes it here. False when the user would rather quit.
+async function setupCharacter() {
+  for (;;) {
+    const { response } = await dialog.showMessageBox({
+      type: 'info', title: 'Clippit', buttons: ['Download', 'Choose a file…', 'Quit'], defaultId: 0, cancelId: 2,
+      message: 'Clippit needs his frames and sounds',
+      detail: `They're Microsoft's artwork, so they can't come with Clippit. He can download the original character file `
+        + `(CLIPPIT.ACS, 2.9 MB) from ${new URL(ACS_URL).host} and decode it on this computer. Nothing in it is run.`,
+    });
+    if (response === 2) return false;
+    try {
+      let data;
+      if (response === 0) data = await download();
+      else {
+        const r = await dialog.showOpenDialog({ title: 'Choose CLIPPIT.ACS', properties: ['openFile'],
+          filters: [{ name: 'Microsoft Agent character', extensions: ['acs', 'ACS'] }] });
+        if (r.canceled || !r.filePaths.length) continue;
+        data = readFileSync(r.filePaths[0]);
+      }
+      decode(data, charDir);
+      return true;
+    } catch (e) {
+      await dialog.showMessageBox({ type: 'error', title: 'Clippit', message: "That didn't work", detail: e.message });
+    }
+  }
+}
+
+// ---------------------------------------------------------------- Claude Code hooks
+
+// The hook and the config reader it imports, copied out of the app (an AppImage's files move on every start), run by
+// Clippit's own executable as Node so the machine needs no Node of its own.
+function hookRunner() {
+  const rt = path.join(dir, 'runtime');
+  for (const f of [path.join('hook', 'clippit-hook.mjs'), path.join('lib', 'config.mjs')]) {
+    mkdirSync(path.dirname(path.join(rt, f)), { recursive: true });
+    writeFileSync(path.join(rt, f), readFileSync(path.join(here, '..', f)));
+  }
+  return { node: process.env.APPIMAGE || process.execPath, hook: path.join(rt, 'hook', 'clippit-hook.mjs'), electron: true };
+}
+
+function claudeSettings() {
+  try { return readSettings(settingsFile()); } catch { return null; }   // not valid JSON: leave it alone
+}
+
+function setHooks(on) {
+  try { writeHooks(settingsFile(), on ? hookRunner() : { uninstall: true }); } catch (e) {
+    dialog.showErrorBox('Clippit', `Couldn't update ${settingsFile()}:\n\n${e.message}`);
+  }
+}
+
+// An installed Clippit offers once to connect itself to Claude Code, and keeps its hook pointing at where it lives now.
+async function checkHooks() {
+  const cc = claudeSettings();
+  if (!cc || !app.isPackaged) return;
+  if (hasHooks(cc)) {
+    if (!hooksCurrent(cc, hookRunner())) setHooks(true);
+    return;
+  }
+  if (settings.askedHooks) return;
+  settings.askedHooks = true;
+  save();
+  const { response } = await dialog.showMessageBox({
+    type: 'question', title: 'Clippit', buttons: ['Connect', 'Not now'], defaultId: 0, cancelId: 1,
+    message: 'Connect Clippit to Claude Code?',
+    detail: `He adds his hook to ${settingsFile()} (backed up first) so Claude Code tells him what your sessions are doing. `
+      + 'Running sessions pick it up after /hooks or a restart. "Connected to Claude Code" in his menu undoes it.',
+  });
+  if (response === 0) setHooks(true);
+}
+
 // ---------------------------------------------------------------- start
 
 app.on('second-instance', () => setHidden(false));
@@ -259,11 +359,8 @@ app.on('before-quit', () => { quitting = true; if (server) server.close(); });
 
 app.whenReady().then(async () => {
   if (!primary) return;
-  if (!ready()) {
-    // His frames and sounds aren't in the repository; install/setup.mjs decodes them from CLIPPIT.ACS.
-    const msg = 'Clippit needs his frames and sounds first. In the clippit folder, run:\n\n    npm run setup';
-    console.error(`clippit: ${msg.replace(/\n\s*/g, ' ')}`);
-    dialog.showErrorBox('Clippit', msg);
+  protocol.handle('clippit', serve);
+  if (!ready(charDir) && !await setupCharacter()) {
     app.quit();
     return;
   }
@@ -275,4 +372,5 @@ app.whenReady().then(async () => {
     if (win && !settings.position) { const p = homePosition(); win.setPosition(p.x, p.y); }
   });
   console.log(`clippit: listening on 127.0.0.1:${server.port}`);
+  checkHooks().catch(e => console.error('clippit: hooks', e));
 });

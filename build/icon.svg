@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Clippit's app icon: an original drawing (the character's own frames are decoded on each machine, never shipped). -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fffbe2"/>
+      <stop offset="1" stop-color="#f1dc86"/>
+    </linearGradient>
+    <linearGradient id="wire" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#eef1f5"/>
+      <stop offset="0.5" stop-color="#b9c0ca"/>
+      <stop offset="1" stop-color="#8d96a3"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)" stroke="#c9ad4f" stroke-width="6"/>
+  <g transform="translate(512 540) scale(0.82) translate(-540 -560)">
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" transform="rotate(-8 540 560)">
+    <path d="M 470 380 L 470 690 A 70 70 0 0 0 610 690 L 610 300 A 110 110 0 0 0 390 300 L 390 750 A 150 150 0 0 0 690 750 L 690 360" stroke="#4e5663" stroke-width="58"/>
+    <path d="M 470 380 L 470 690 A 70 70 0 0 0 610 690 L 610 300 A 110 110 0 0 0 390 300 L 390 750 A 150 150 0 0 0 690 750 L 690 360" stroke="url(#wire)" stroke-width="38"/>
+  </g>
+  <g stroke="#1d1d1d" stroke-width="9">
+    <ellipse cx="478" cy="355" rx="50" ry="62" fill="#fff"/>
+    <ellipse cx="590" cy="345" rx="50" ry="62" fill="#fff"/>
+    <circle cx="492" cy="372" r="19" fill="#1d1d1d" stroke="none"/>
+    <circle cx="604" cy="362" r="19" fill="#1d1d1d" stroke="none"/>
+    <path d="M 432 268 Q 470 240 515 258" fill="none" stroke-linecap="round" stroke-width="14"/>
+    <path d="M 552 250 Q 595 228 636 250" fill="none" stroke-linecap="round" stroke-width="14"/>
+  </g>
+  </g>
+</svg>

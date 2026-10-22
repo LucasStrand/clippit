@@ -17,6 +17,20 @@ export const ACS_SHA256 = '0ed1ab3ee8f349d0c2b5446029049be1d64c2294b2b72343ddd5e
 export const ready = (app = path.join(root, 'app')) =>
   existsSync(path.join(app, 'assets', 'clippy', 'atlas.png')) && existsSync(path.join(app, 'renderer', 'agent-data.js'));
 
+// Fetches the original character file and refuses anything that isn't byte-for-byte the expected one.
+export async function download() {
+  const res = await fetch(ACS_URL);
+  if (!res.ok) throw new Error(`download failed: HTTP ${res.status}`);
+  const data = Buffer.from(await res.arrayBuffer());
+  const sum = createHash('sha256').update(data).digest('hex');
+  if (sum !== ACS_SHA256) throw new Error(`the download isn't the expected CLIPPIT.ACS (sha256 ${sum}); nothing was written`);
+  return data;
+}
+
+// Decodes CLIPPIT.ACS into <app>/assets/clippy/ and <app>/renderer/agent-data.js, the layout the renderer loads.
+export const decode = (data, app = path.join(root, 'app')) =>
+  exportCharacter(parse(data), path.join(app, 'assets', 'clippy'), path.join(app, 'renderer', 'agent-data.js'));
+
 async function main(argv) {
   const at = argv.indexOf('--out');
   const app = at >= 0 ? path.resolve(argv[at + 1]) : path.join(root, 'app');
@@ -30,13 +44,11 @@ async function main(argv) {
     data = readFileSync(file);
   } else {
     console.log(`Downloading ${ACS_URL}`);
-    const res = await fetch(ACS_URL);
-    if (!res.ok) throw new Error(`download failed: HTTP ${res.status}. Get CLIPPIT.ACS elsewhere and run: npm run setup -- path/to/CLIPPIT.ACS`);
-    data = Buffer.from(await res.arrayBuffer());
-    const sum = createHash('sha256').update(data).digest('hex');
-    if (sum !== ACS_SHA256) throw new Error(`the download isn't the expected CLIPPIT.ACS (sha256 ${sum}); nothing was written`);
+    data = await download().catch(e => {
+      throw new Error(`${e.message}. Get CLIPPIT.ACS elsewhere and run: npm run setup -- path/to/CLIPPIT.ACS`);
+    });
   }
-  const meta = exportCharacter(parse(data), path.join(app, 'assets', 'clippy'), path.join(app, 'renderer', 'agent-data.js'));
+  const meta = decode(data, app);
   console.log(`Clippit decoded: ${meta.tiles} frames, ${Object.keys(meta.animations).length} animations, ${meta.sounds} sounds.`);
 }
 

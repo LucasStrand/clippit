@@ -2,3 +2,4 @@ node_modules/
 # Microsoft's artwork, decoded from CLIPPIT.ACS on each machine by `npm run setup`
 app/assets/clippy/
 app/renderer/agent-data.js
+dist/

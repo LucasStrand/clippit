@@ -12,7 +12,25 @@ Click **Show me** and he brings that session's terminal to the front. He stays q
 already looking at, has Do Not Disturb, sends desktop notifications while he's hidden, and remembers where you
 put him.
 
-## Install
+## Download
+
+Get the file for your computer from the [latest release](https://github.com/LucasStrand/clippit/releases/latest):
+
+| | |
+|---|---|
+| Windows 10 and later | [`Clippit-windows-x64-setup.exe`](https://github.com/LucasStrand/clippit/releases/latest/download/Clippit-windows-x64-setup.exe) |
+| macOS 12 and later (Apple silicon and Intel) | [`Clippit-mac-universal.dmg`](https://github.com/LucasStrand/clippit/releases/latest/download/Clippit-mac-universal.dmg) |
+| Linux, 64-bit | [`Clippit-linux-x86_64.AppImage`](https://github.com/LucasStrand/clippit/releases/latest/download/Clippit-linux-x86_64.AppImage) (`chmod +x`, then run it) |
+
+On his first start he downloads his frames and sounds (see [About the artwork](#about-the-artwork)) and offers to
+connect himself to Claude Code: his hook goes into `~/.claude/settings.json`, backed up first, and runs on his own
+bundled runtime, so you don't need Node.js. "Connected to Claude Code" in his menu turns that off and on. The
+builds aren't code-signed: on Windows, SmartScreen asks first (*More info*, *Run anyway*); on macOS, choose *Open
+Anyway* under *System Settings*, *Privacy & Security* after the first try.
+
+Releases are built by `.github/workflows/release.yml` when a `v*` tag is pushed, as a draft to check and publish.
+
+## Install from source
 
 You need [Claude Code](https://docs.claude.com/en/docs/claude-code/overview), Node.js 18 or later, and Git.
 
@@ -63,6 +81,8 @@ npm test               # node --test: transcripts, the event reducer, the server
 Clippit's frames and sounds are Microsoft's, so they aren't in this repository. `npm run setup` downloads the
 original Microsoft Agent character file, `CLIPPIT.ACS`, from an archive of classic Agent characters, checks its
 SHA-256, and decodes it locally into `app/assets/clippy/`. Already have the file? `npm run setup -- path/to/CLIPPIT.ACS`.
+The downloadable builds don't contain the artwork either: on first start they offer the same download (or a file you
+choose) and decode it into Clippit's config folder. The app icon is an original drawing (`build/icon.svg`).
 
 The decoder (`install/acs.mjs`) is a port of the image decompressor in Windows XP's `agentdpv.dll`, worked out by
 reverse engineering. It plays the character the way Microsoft Agent did: frame timings, random branches, exit

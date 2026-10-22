@@ -11,7 +11,7 @@ import { writeConnection } from '../lib/config.mjs';
 import { startServer } from '../lib/server.mjs';
 import { Sessions, describeTool } from '../lib/sessions.mjs';
 import { gist, readTranscript } from '../lib/transcript.mjs';
-import { addHooks, removeHooks, EVENTS } from '../install/install.mjs';
+import { addHooks, hasHooks, hookEntry, hooksCurrent, removeHooks, EVENTS } from '../install/install.mjs';
 import { decompress } from '../install/acs.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -112,6 +112,30 @@ test('installer: merges with existing hooks, is idempotent, uninstalls only its 
   assert.deepEqual(ours, { type: 'command', command: '/usr/bin/node', args: ['/opt/clippit/hook/clippit-hook.mjs'], async: true, timeout: 10 });
   removeHooks(s);
   assert.deepEqual(s, { model: 'opus', hooks: { Stop: [{ hooks: [mine] }] } });
+});
+
+test('installer: an installed Clippit runs the hook with its own executable as Node', () => {
+  const linux = { node: "/home/o'neil/Clippit.AppImage", hook: '/home/o\'neil/.config/clippit/runtime/hook/clippit-hook.mjs', electron: true };
+  assert.equal(hookEntry({ ...linux, platform: 'linux' }).command,
+    `ELECTRON_RUN_AS_NODE=1 exec '/home/o'\\''neil/Clippit.AppImage' '/home/o'\\''neil/.config/clippit/runtime/hook/clippit-hook.mjs'`);
+  const win = hookEntry({ node: "C:\\Users\\O'Neil\\Clippit.exe", hook: 'C:\\Users\\O\'Neil\\clippit-hook.mjs', electron: true, platform: 'win32' });
+  assert.equal(win.shell, 'powershell');
+  assert.equal(win.command, `$env:ELECTRON_RUN_AS_NODE='1'; & 'C:\\Users\\O''Neil\\Clippit.exe' 'C:\\Users\\O''Neil\\clippit-hook.mjs'`);
+
+  const s = { hooks: {} };
+  addHooks(s, { ...linux, platform: 'linux' });
+  assert.ok(hasHooks(s));
+  assert.ok(hooksCurrent(s, { ...linux, platform: 'linux' }));
+  assert.ok(!hooksCurrent(s, { ...linux, node: '/elsewhere/Clippit.AppImage', platform: 'linux' }), 'a moved AppImage is noticed');
+  removeHooks(s);
+  assert.deepEqual(s, {}, 'shell-form entries are recognised as ours');
+
+  if (process.platform !== 'win32') {
+    // The shell form really starts the hook (Node ignores ELECTRON_RUN_AS_NODE), and the hook exits 0 with no Clippit running.
+    const { command } = hookEntry({ node: process.execPath, hook: path.join(root, 'hook', 'clippit-hook.mjs'), electron: true });
+    const r = spawnSync('sh', ['-c', command], { input: '{}', env: { ...process.env, CLIPPIT_HOME: mkdtempSync(path.join(tmp, 'home-')) }, timeout: 5000 });
+    assert.equal(r.status, 0, String(r.stderr));
+  }
 });
 
 test('decompress: Agent literals, an overlapping match and the end marker', () => {

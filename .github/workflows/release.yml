@@ -1,0 +1,75 @@
+# Builds Clippit for Linux, Windows and macOS when a version tag is pushed (or by hand, without a release) and
+# attaches the installers to a draft GitHub release. Nothing is public until someone publishes the draft; the
+# website's download buttons use releases/latest, which only sees published releases.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      # electron-builder downloads its own Electron, so no package needs its install script.
+      - run: npm ci --ignore-scripts
+      - run: npm test
+        if: runner.os == 'Linux'
+      - run: npx --no-install electron-builder --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'   # not code-signed; the mac build is signed ad hoc (identity "-")
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: clippit-${{ runner.os }}
+          path: |
+            dist/Clippit-*.AppImage
+            dist/Clippit-*.exe
+            dist/Clippit-*.dmg
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+      - run: sha256sum Clippit-* > SHA256SUMS.txt
+        working-directory: dist
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'NOTES'
+          Pick the file for your computer. On his first start Clippit downloads his frames and sounds (Microsoft's
+          artwork, so they can't ship with him) and offers to connect himself to Claude Code.
+
+          - **Linux:** `Clippit-linux-x86_64.AppImage`. Make it executable (`chmod +x`) and run it.
+          - **Windows:** `Clippit-windows-x64-setup.exe`. It isn't code-signed, so SmartScreen asks first:
+            *More info* → *Run anyway*.
+          - **macOS:** `Clippit-mac-universal.dmg` (Apple silicon and Intel). It isn't notarized: after the first
+            try, open *System Settings* → *Privacy & Security* and choose *Open Anyway*.
+
+          `SHA256SUMS.txt` lists each file's checksum.
+          NOTES
+          gh release create "$GITHUB_REF_NAME" dist/* --draft --verify-tag --repo "$GITHUB_REPOSITORY" \
+            --title "Clippit ${GITHUB_REF_NAME#v}" --notes-file notes.md
