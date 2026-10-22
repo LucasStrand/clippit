@@ -51,11 +51,14 @@ function pushState() {
 
 // ---------------------------------------------------------------- the window
 
+// The whole window starts on one screen: Hyprland's XWayland maps a window whose corner is off the X screens to
+// a made-up spot (often off every monitor), and the balloon needs the room above and left of Clippy anyway. A saved
+// spot goes to the screen nearest Clippy, the 124x93 sprite in the window's bottom-right corner (style.css).
 function homePosition() {
   if (settings.position) {
-    const d = screen.getDisplayNearestPoint(settings.position).workArea;
-    return { x: Math.min(Math.max(settings.position.x, d.x - WIN_W + 150), d.x + d.width - 150),
-      y: Math.min(Math.max(settings.position.y, d.y - WIN_H + 120), d.y + d.height - 120) };
+    const { x, y } = settings.position;
+    const d = screen.getDisplayNearestPoint({ x: x + WIN_W - 72, y: y + WIN_H - 52 }).workArea;
+    return { x: Math.min(Math.max(x, d.x), d.x + d.width - WIN_W), y: Math.min(Math.max(y, d.y), d.y + d.height - WIN_H) };
   }
   const wa = screen.getPrimaryDisplay().workArea;
   return { x: wa.x + wa.width - WIN_W - 12, y: wa.y + wa.height - WIN_H - 8 };
