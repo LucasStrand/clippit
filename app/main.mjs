@@ -2,6 +2,7 @@
 // Claude Code hook events (lib/server.mjs) to what Clippit says and does.
 
 import { app, BrowserWindow, dialog, ipcMain, Menu, net, Notification, nativeImage, protocol, screen, Tray } from 'electron';
+import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -20,11 +21,13 @@ const IS_MAC = process.platform === 'darwin';
 app.setName('Clippit');
 // X11 (XWayland on Wayland desktops) lets the window shape itself, stay on top and move by drag. Chromium picks its
 // display backend before this script runs, so on Linux without bin/clippit's flags (an installed Clippit, `npm start`)
-// he starts himself again with them; an AppImage restarts through its image, since its mount goes away with it.
+// he starts himself again with them. Not with app.relaunch: an AppImage's relauncher runs from its mount, which goes
+// away with this process, so the new one starts from the image itself.
 const relaunch = process.platform === 'linux' && app.commandLine.getSwitchValue('ozone-platform') !== 'x11';
 if (relaunch) {
-  app.relaunch({ execPath: process.env.APPIMAGE || process.execPath,
-    args: [...process.argv.slice(1), '--ozone-platform=x11', '--class=clippit', '--name=clippit', '--enable-transparent-visuals'] });
+  spawn(process.env.APPIMAGE || process.execPath,
+    [...process.argv.slice(1), '--ozone-platform=x11', '--class=clippit', '--name=clippit', '--enable-transparent-visuals'],
+    { detached: true, stdio: 'ignore' }).unref();
   app.exit(0);
 }
 // A second `clippit` only wakes the running one (second-instance below) and must not start anything:

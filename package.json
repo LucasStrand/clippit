@@ -36,6 +36,9 @@
       "!app/assets/clippy/**",
       "!app/renderer/agent-data.js"
     ],
+    "toolsets": {
+      "appimage": "1.0.3"
+    },
     "linux": {
       "target": [
         {
