@@ -1,0 +1,64 @@
+<!doctype html>
+<!-- Cookie popups (and things that aren't) for the extension's own pass, one per page:
+     open fixtures.html?case=<name>; the page records what got clicked in window.clicked. -->
+<html><head><meta charset="utf-8"><title>Clippit Says No fixtures</title>
+<style>
+  body { font: 15px system-ui; margin: 0; min-height: 200vh }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; background: #fff; border-top: 1px solid #999; padding: 16px }
+  .modal { position: fixed; inset: 20% 30%; background: #fff; border: 1px solid #999; padding: 16px }
+  .app { position: fixed; inset: 0; background: #f4f4f4; overflow: auto }
+</style></head>
+<body>
+<p>Some page content.</p>
+<script>
+window.clicked = [];
+const cases = {
+  // a reject button that says the word "accepting"
+  continueWithout: `<div class="bar"><p>We use cookies to improve your experience.</p>
+    <button data-r="accept">Accept all</button> <button data-r="reject">Continue without accepting</button></div>`,
+  // an icon × that accepts, and a settings link that would leave the page: neither may be used
+  acceptingX: `<div class="bar"><p>This site uses cookies for ads and analytics.</p>
+    <button data-r="accept">Accept</button> <a href="/cookie-policy" data-r="policy-link">Cookie settings</a>
+    <button aria-label="Accept and close" data-r="accept-x">×</button></div>`,
+  // a sign-in modal that mentions consent: not a cookie popup
+  signIn: `<div class="modal" role="dialog"><p>Sign in. By continuing you consent to our terms.</p>
+    <button data-r="facebook">Continue with Facebook</button> <button data-r="outlook">Outlook</button>
+    <button aria-label="Close" data-r="close-login">×</button></div>`,
+  // a whole app pinned to the screen, with "cookies" in its footer and its own settings
+  appRoot: `<div class="app"><nav>Home · Settings</nav><main><h1>Dashboard</h1>
+    <label><input type="checkbox" checked data-r="app-checkbox"> Email me</label>
+    <button data-r="app-settings">Settings</button> <button data-r="app-save">Save</button> <button data-r="app-ok">OK</button></main>
+    <footer>We use cookies. <button data-r="app-accept">Accept</button></footer></div>`,
+  // only accept and settings: open the settings, switch everything off, save
+  settingsFlow: `<div class="bar" id="b"><p>We and our partners use cookies.</p>
+    <button data-r="accept">Accept all</button> <button data-r="settings" onclick="document.getElementById('b').innerHTML = window.pane">Manage preferences</button></div>`,
+  // a settings pane with one "Reject" per purpose and a save button (Schibsted's Sourcepoint)
+  perPurpose: `<div class="modal" role="dialog"><p>Cookieinställningar. Vi behöver ditt samtycke.</p>
+    <p>Marknadsföring <button data-r="yes1">Godkänn</button> <button data-r="no1">Avvisa</button></p>
+    <p>Analys <button data-r="yes2">Godkänn</button> <button data-r="no2">Avvisa</button></p>
+    <button data-r="accept">Godkänn alla</button> <button data-r="save">Spara val</button></div>`,
+  swedish: `<div class="bar"><p>Vi använder kakor för att förbättra din upplevelse.</p>
+    <button data-r="accept">Godkänn alla</button> <button data-r="reject">Avvisa alla</button></div>`,
+  german: `<div class="modal" role="dialog"><p>Wir verwenden Cookies und brauchen Ihre Einwilligung.</p>
+    <button data-r="accept">Alle akzeptieren</button> <button data-r="reject">Optionale Cookies ablehnen</button></div>`,
+  // no way to say no and no close button: hide it, and the backdrop
+  noWayOut: `<div style="position:fixed;inset:0;background:rgba(0,0,0,.5)" id="backdrop"></div>
+    <div class="modal" id="wall"><p>We need cookies. Please accept.</p><button data-r="accept">I agree</button></div>`,
+  // a newsletter modal with "No thanks" and "consent" in its text: it isn't asking about cookies, but saying
+  // no to it is harmless; recorded so we see what happens
+  newsletter: `<div class="modal" role="dialog"><p>Get our newsletter. You consent to receive emails.</p>
+    <button data-r="subscribe">Subscribe</button> <button data-r="no-thanks">No thanks</button></div>`,
+};
+window.pane = `<p>Cookie preferences</p>
+  <label><input type="checkbox" checked disabled> Necessary</label>
+  <label><input type="checkbox" checked data-r="analytics-on"> Analytics</label>
+  <div role="switch" aria-checked="true" tabindex="0" data-r="ads-switch" onclick="this.setAttribute('aria-checked', 'false')">Ads</div>
+  <button data-r="accept-all-2">Accept all</button> <button data-r="save">Save preferences</button>`;
+const name = new URLSearchParams(location.search).get('case');
+document.body.insertAdjacentHTML('beforeend', cases[name] || '<p>no such case</p>');
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-r]');
+  if (t) { window.clicked.push(t.dataset.r + (t.type === 'checkbox' ? (t.checked ? ':on' : ':off') : '')); if (t.tagName === 'A') e.preventDefault(); }
+}, true);
+</script>
+</body></html>

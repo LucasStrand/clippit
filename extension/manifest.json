@@ -1,0 +1,53 @@
+{
+  "name": "Clippit Says No",
+  "description": "Clippit's cookie rejecter: says no to GDPR consent popups for you. Built on Consent-O-Matic.",
+  "author": "Christoffer Karlsson",
+  "homepage_url": "https://github.com/LucasStrand/clippit",
+  "version": "REPLACED_BY_BUILD_SCRIPT",
+  "manifest_version": 3,
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "action": {
+    "default_title": "Clippit Says No",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "48": "icon_48.png",
+      "96": "icon_96.png"
+    }
+  },
+  "background": {
+    "scripts": [
+      "service.js"
+    ],
+    "persistent": false
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "all_frames": true,
+      "match_about_blank": true,
+      "run_at": "document_start"
+    }
+  ],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "icons": {
+    "48": "icon_48.png",
+    "96": "icon_96.png",
+    "128": "icon_128.png"
+  }
+}
